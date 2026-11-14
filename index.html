@@ -17,9 +17,6 @@
   --bg:#E8ECEA; --surface:#F6F8F7; --line:#C5CECA; --text:#18201E; --muted:#56625E;
   --accent:#1F5C52; --accent-ink:#F6F8F7; --stage:#D3DAD6; --sel:#D99A2B; --chip:#E0E6E3; --guide:#D6338F;
   color-scheme: light;
-  box-sizing:border-box;
-  padding-top:env(safe-area-inset-top,0px);
-  padding-bottom:env(safe-area-inset-bottom,0px);
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
@@ -33,14 +30,19 @@
   --accent:#79C2B2; --accent-ink:#0F1513; --stage:#0C100F; --sel:#F0B54A; --chip:#232B29; --guide:#FF6FC3;
   color-scheme: dark;
 }
-html{scroll-padding-top:env(safe-area-inset-top,0px)}
+/* App shell: the page itself never scrolls, so there is nothing for the browser to pull-to-refresh or rubber-band */
+html,body{height:100%;overflow:hidden;overscroll-behavior:none}
 *,*::before,*::after{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font-family:'Archivo',system-ui,-apple-system,'Segoe UI',sans-serif;font-size:16px;line-height:1.45;-webkit-text-size-adjust:100%;touch-action:manipulation}
-body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--text);font-family:'Archivo',system-ui,-apple-system,'Segoe UI',sans-serif;font-size:16px;line-height:1.45;-webkit-text-size-adjust:100%;touch-action:manipulation;position:fixed;inset:0;width:100%}
+/* Height follows the visual viewport (set from JS) so the keyboard shrinks the app instead of covering it */
+#app{position:fixed;left:0;right:0;top:0;height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+#app > *{width:100%;max-width:760px;margin-left:auto;margin-right:auto}
+/* Vertical swipes on the chrome do nothing; only the tray (sideways) and the editor panes (up/down) scroll */
+header,#stageWrap,.aspect,.gesture-hint,.row-head,.tabbar{touch-action:none}
 button,input,select{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
-header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);display:flex;align-items:center;gap:8px;padding:10px 16px;max-width:760px;margin:0 auto}
+header{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:6px 16px}
 header h1{font-size:19px;font-weight:700;font-stretch:85%;margin:0;flex:1;letter-spacing:-.01em}
 .btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-weight:600;font-size:15px;cursor:pointer;white-space:nowrap}
 .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
@@ -50,14 +52,17 @@ button,label,.tile{-webkit-tap-highlight-color:transparent}
 /* Kept in the layout (not display:none) so iOS Safari still opens the picker when the label is tapped */
 .btn input{position:absolute;inset:0;width:100%;height:100%;opacity:0;pointer-events:none}
 
-main{max-width:760px;margin:0 auto;padding:0 16px 32px}
-#stageWrap{display:flex;justify-content:center}
-#stage{position:relative;width:100%;min-height:260px;background:var(--stage);border-radius:14px;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
-#stage.has-photo{min-height:0;border-radius:6px}
+main{flex:1 1 0;min-height:0;display:flex;flex-direction:column;padding:0 16px 8px}
+/* Takes whatever height is left; layout() fits the photo inside it */
+#stageWrap{flex:1 1 0;min-height:0;display:flex;justify-content:center;align-items:center;overflow:hidden}
+#dock{flex:0 0 auto}
+#app.editing #dock{display:none}
+#stage{position:relative;flex:0 0 auto;width:100%;height:100%;background:var(--stage);border-radius:14px;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+#stage.has-photo{border-radius:6px}
 /* Positioned by placePhoto(): fills the stage in Full mode, pans/zooms behind a square frame in Cover mode */
 #photo{position:absolute;left:0;top:0;max-width:none;display:none;pointer-events:none}
-.aspect{display:flex;justify-content:center;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
-.aspect .hint{margin:0;font-size:12px}
+.aspect{display:flex;justify-content:center;margin-top:8px}
+.aspect[hidden]{display:none}
 #stage.has-photo #photo{display:block}
 .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;color:var(--muted)}
 .empty p{margin:0;max-width:26ch}
@@ -71,25 +76,28 @@ main{max-width:760px;margin:0 auto;padding:0 16px 32px}
 .guide.show{display:block}
 .placed img{display:block;width:100%;height:100%;pointer-events:none}
 .placed.sel{outline:1.5px dashed var(--sel);outline-offset:3px}
-.gesture-hint{font-size:13px;color:var(--muted);text-align:center;margin:8px 0 0;min-height:1.4em}
+.gesture-hint{flex:0 0 auto;font-size:12px;line-height:1.3;color:var(--muted);text-align:center;margin:6px 0 0}
+.gesture-hint:empty,.gesture-hint[hidden]{display:none}
 
-.panel{margin-top:18px}
+.panel{margin-top:8px}
 .panel h2{font-size:15px;font-weight:700;margin:0}
-.row-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px}
+.row-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px}
 .linkbtn{background:none;border:0;color:var(--accent);font-weight:600;font-size:14px;padding:6px 2px;cursor:pointer}
-.tray{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 8px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
-.tile{position:relative;flex:0 0 auto;width:92px;scroll-snap-align:start;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:8px 6px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;text-align:center}
-.tile .thumb{width:64px;height:64px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.tray{display:flex;gap:10px;overflow-x:auto;overflow-y:hidden;padding:8px 8px 4px 2px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;touch-action:pan-x;overscroll-behavior:contain;scrollbar-width:none}
+.tray::-webkit-scrollbar{display:none}
+.tile{position:relative;flex:0 0 auto;width:84px;scroll-snap-align:start;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:8px 6px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;text-align:center}
+.tile .thumb{width:52px;height:52px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .tile .thumb img{width:88%;height:88%;object-fit:contain}
-.tile span{font-size:12px;line-height:1.25;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+.tile span{font-size:11px;line-height:1.25;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
 .tile.add{border-style:dashed;justify-content:center;color:var(--accent);font-weight:600;font-size:13px}
 .tile.add .plus{font-size:28px;line-height:1;font-weight:400}
 .tile .x{position:absolute;top:-6px;right:-6px;width:26px;height:26px;border-radius:50%;background:var(--text);color:var(--bg);display:none;align-items:center;justify-content:center;font-size:15px;line-height:1;border:2px solid var(--bg)}
 .tray.manage .tile .x{display:flex}
-.hint{font-size:13px;color:var(--muted);margin:4px 0 0}
+.hint{font-size:12px;color:var(--muted);margin:4px 0 0}
+.hint[hidden]{display:none}
 
-/* Editor: a bottom sheet pinned to the screen so the photo stays in view while editing */
-#editor{position:fixed;left:0;right:0;bottom:0;z-index:8;max-width:760px;margin:0 auto;background:var(--surface);border:1px solid var(--line);border-bottom:0;border-radius:16px 16px 0 0;box-shadow:0 -6px 24px rgba(0,0,0,.12);padding:2px 16px calc(10px + env(safe-area-inset-bottom,0px));max-height:48vh;display:flex;flex-direction:column}
+/* Editor: takes the bottom of the app in place of the label tray; the photo re-fits into the space above it */
+#editor{flex:0 0 auto;background:var(--surface);border:1px solid var(--line);border-bottom:0;border-radius:16px 16px 0 0;box-shadow:0 -6px 24px rgba(0,0,0,.12);padding:2px 16px 10px;max-height:55%;display:flex;flex-direction:column}
 #editor[hidden]{display:none}
 .grab{display:flex;justify-content:center;padding:4px 0 2px;cursor:pointer;touch-action:none}
 .grab span{width:40px;height:5px;border-radius:3px;background:var(--line)}
@@ -97,7 +105,7 @@ main{max-width:760px;margin:0 auto;padding:0 16px 32px}
 .tabs{flex:1;display:flex;gap:4px;padding:3px;background:var(--chip);border-radius:10px}
 .tabs button{flex:1;min-height:34px;border:0;border-radius:8px;background:none;font-size:14px;font-weight:600;color:var(--muted);cursor:pointer;padding:0 4px}
 .tabs button[aria-selected="true"]{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.12)}
-.panes{overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0}
+.panes{overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;touch-action:pan-y;overscroll-behavior:contain}
 .pane[hidden]{display:none}
 #editor.collapsed .panes{display:none}
 .actions{display:flex;gap:8px;flex-wrap:wrap;padding:4px 0}
@@ -109,6 +117,8 @@ main{max-width:760px;margin:0 auto;padding:0 16px 32px}
 .range label{font-size:14px}
 .range output{font-size:13px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
 input[type=range]{width:100%;accent-color:var(--accent);min-height:32px}
+.range.nudge{grid-template-columns:20px 40px 1fr 40px 50px;gap:8px}
+.step{min-height:40px;border-radius:10px;border:1px solid var(--line);background:var(--bg);font-size:20px;line-height:1;font-weight:600;cursor:pointer;padding:0}
 .choice{display:grid;grid-template-columns:84px 1fr;align-items:center;gap:10px;margin:8px 0}
 .choice > span{font-size:14px}
 .seg{display:flex;gap:6px;flex-wrap:wrap}
@@ -134,6 +144,7 @@ input[type=range]{width:100%;accent-color:var(--accent);min-height:32px}
 </style>
 </head>
 <body>
+<div id="app">
 <header>
   <h1>Label placer</h1>
   <label class="btn" id="changePhoto" hidden>Photo<input type="file" accept="image/*" id="photoInput2"></label>
@@ -152,24 +163,23 @@ input[type=range]{width:100%;accent-color:var(--accent);min-height:32px}
       <div class="guide h" id="guideH"></div>
     </div>
   </div>
+  <p class="gesture-hint" id="gestureHint"></p>
+  <div id="dock">
   <div class="aspect" id="aspectBar" hidden>
     <div class="seg" id="aspectSeg">
       <button type="button" data-aspect="full" aria-pressed="true">Original</button>
       <button type="button" data-aspect="square" aria-pressed="false">Square cover</button>
     </div>
-    <p class="hint" id="aspectHint">Square saves 3000×3000 for Apple Music &amp; Spotify.</p>
   </div>
-  <p class="gesture-hint" id="gestureHint"></p>
-
   <section class="panel">
     <div class="row-head">
       <h2>Labels</h2>
       <button class="linkbtn" id="manageBtn" type="button">Edit list</button>
     </div>
     <div class="tray" id="tray"></div>
-    <p class="hint" id="trayHint">Tap a label to add it to the photo. Your labels stay in this browser.</p>
+    <p class="hint" id="trayHint" hidden></p>
   </section>
-
+  </div>
 </main>
 
 <section id="editor" hidden aria-label="Selected label">
@@ -177,6 +187,7 @@ input[type=range]{width:100%;accent-color:var(--accent);min-height:32px}
   <div class="tabbar">
     <div class="tabs" role="tablist">
       <button type="button" role="tab" data-tab="text" aria-selected="true">Text</button>
+      <button type="button" role="tab" data-tab="move" aria-selected="false">Move</button>
       <button type="button" role="tab" data-tab="size" aria-selected="false">Size</button>
       <button type="button" role="tab" data-tab="color" aria-selected="false">Color</button>
       <button type="button" role="tab" data-tab="more" aria-selected="false">More</button>
@@ -187,6 +198,11 @@ input[type=range]{width:100%;accent-color:var(--accent);min-height:32px}
     <div class="pane" data-pane="text">
       <div id="fields"></div>
       <label class="check"><input type="checkbox" id="centerLines"> Center the text lines</label>
+    </div>
+    <div class="pane" data-pane="move" hidden>
+      <div class="range nudge"><label for="posX">X</label><button class="step" type="button" data-axis="x" data-d="-1" aria-label="Nudge left">‹</button><input type="range" id="posX" min="0" max="100" step="0.1"><button class="step" type="button" data-axis="x" data-d="1" aria-label="Nudge right">›</button><output id="posXO"></output></div>
+      <div class="range nudge"><label for="posY">Y</label><button class="step" type="button" data-axis="y" data-d="-1" aria-label="Nudge up">‹</button><input type="range" id="posY" min="0" max="100" step="0.1"><button class="step" type="button" data-axis="y" data-d="1" aria-label="Nudge down">›</button><output id="posYO"></output></div>
+      <p class="hint">These move freely, without snapping. The arrows nudge by 0.1%.</p>
     </div>
     <div class="pane" data-pane="size" hidden>
       <div class="range"><label for="sizeR">Size</label><input type="range" id="sizeR" min="4" max="100" step="0.5"><output id="sizeO"></output></div>
@@ -218,6 +234,7 @@ input[type=range]{width:100%;accent-color:var(--accent);min-height:32px}
     </div>
   </div>
 </section>
+</div>
 
 <div class="sheet" id="result" hidden>
   <div class="sheet-inner">
@@ -382,7 +399,8 @@ async function renderTray(){
   add.querySelector('input').addEventListener('change', onSvgFiles);
   tray.appendChild(add);
   $('manageBtn').textContent = manage ? 'Done' : 'Edit list';
-  $('trayHint').textContent = manage ? 'Tap a label to remove it from the list. Labels already on the photo stay.' : 'Tap a label to add it to the photo. Your labels stay in this browser.';
+  $('trayHint').hidden = !manage;
+  $('trayHint').textContent = manage ? 'Tap a label to remove it from the list. Labels already on the photo stay.' : '';
 }
 
 async function onSvgFiles(e){
@@ -474,11 +492,11 @@ function select(inst){
   selected = inst;
   for (const i of instances) i.el.classList.toggle('sel', i === inst);
   editor.hidden = !inst;
-  // The hint lives under the stage, which the sheet covers while editing, so it only shows when nothing is selected
-  $('gestureHint').hidden = !!inst;
-  $('gestureHint').textContent = instances.length ? 'Tap a label to edit it. Drag to move; it snaps to the center, edges and other labels. Pinch to resize and rotate.' : (aspect === 'square' ? 'Drag the photo to frame it, pinch to zoom. Then tap a label below.' : '');
+  // The editor replaces the tray and hint while a label is selected
+  $('app').classList.toggle('editing', !!inst);
+  updateHint();
   if (!inst) { layout(); return; }
-  if (!wasOpen) { editor.classList.remove('collapsed'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  if (!wasOpen) editor.classList.remove('collapsed');
   layout();
   fields.replaceChildren();
   inst.lines.forEach((el, i) => {
@@ -494,8 +512,19 @@ function select(inst){
   syncControls();
 }
 
+function updateHint(){
+  const h = $('gestureHint');
+  h.hidden = !!selected;
+  h.textContent = !photoImg.naturalWidth ? ''
+    : instances.length ? 'Tap a label to edit. Drag to move, pinch to resize and rotate.'
+    : aspect === 'square' ? 'Drag the photo to frame it, pinch to zoom. Saves 3000×3000.'
+    : 'Tap a label below to add it.';
+}
+
 function syncControls(){
   const i = selected; if (!i) return;
+  $('posX').value = (i.x*100).toFixed(1); $('posXO').textContent = (i.x*100).toFixed(1) + '%';
+  $('posY').value = (i.y*100).toFixed(1); $('posYO').textContent = (i.y*100).toFixed(1) + '%';
   $('sizeR').value = (i.w*100).toFixed(1); $('sizeO').textContent = Math.round(i.w*100) + '%';
   $('rotR').value = Math.round(i.rot); $('rotO').textContent = Math.round(i.rot) + '°';
   $('txtR').value = Math.round(i.textScale*100); $('txtO').textContent = Math.round(i.textScale*100) + '%';
@@ -510,6 +539,15 @@ function syncControls(){
   for (const b of $('bgSeg').querySelectorAll('button')) b.setAttribute('aria-pressed', b.dataset.bg === i.bg ? 'true':'false');
 }
 
+// Manual placement: sliders and nudge arrows set the label's center directly, bypassing the snap guides
+function setPos(axis, pct){
+  if (!selected) return;
+  selected[axis] = Math.max(0, Math.min(1, Math.round(pct*10)/1000));
+  hideGuides(); position(selected); syncControls();
+}
+$('posX').addEventListener('input', e => setPos('x', +e.target.value));
+$('posY').addEventListener('input', e => setPos('y', +e.target.value));
+for (const b of editor.querySelectorAll('.step')) b.addEventListener('click', () => { if (selected) setPos(b.dataset.axis, selected[b.dataset.axis]*100 + b.dataset.d*0.1); });
 $('sizeR').addEventListener('input', e => { if (!selected) return; selected.w = e.target.value/100; position(selected); syncControls(); });
 $('rotR').addEventListener('input', e => { if (!selected) return; selected.rot = +e.target.value; position(selected); syncControls(); });
 $('txtR').addEventListener('input', e => { if (!selected) return; selected.textScale = e.target.value/100; scheduleRender(selected); syncControls(); });
@@ -532,20 +570,19 @@ for (const b of editor.querySelectorAll('.tabs button')) {
   });
 }
 $('sheetGrab').addEventListener('click', () => editor.classList.toggle('collapsed'));
-// Re-fit the photo whenever the sheet changes height (tab switch, collapse, text fields added)
-if (window.ResizeObserver) new ResizeObserver(() => layout()).observe(editor);
+// Re-fit the photo whenever the space left for it changes (editor opens, tab switch, keyboard, rotation)
+if (window.ResizeObserver) new ResizeObserver(() => layout()).observe($('stageWrap'));
 
-// Keep the sheet above the iOS keyboard: pin it to the bottom of the visual viewport
-let kbOffset = 0;
+// Size the app to the visual viewport so the on-screen keyboard shrinks it rather than covering the editor
 if (window.visualViewport) {
-  const vv = window.visualViewport;
+  const vv = window.visualViewport, app = $('app');
   const fit = () => {
-    kbOffset = Math.max(0, window.innerHeight - (vv.offsetTop + vv.height));
-    editor.style.bottom = kbOffset + 'px';
-    editor.style.maxHeight = Math.round(vv.height * 0.55) + 'px';
+    if (Math.abs(vv.scale - 1) > 0.01) return;   // leave pinch-zoomed pages alone
+    app.style.height = vv.height + 'px';
+    app.style.transform = vv.offsetTop ? `translateY(${vv.offsetTop}px)` : '';
     layout();
   };
-  vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit);
+  vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); fit();
 }
 $('delBtn').addEventListener('click', () => {
   if (!selected) return;
@@ -568,7 +605,7 @@ function onPhoto(e){
   photoImg.onload = () => {
     crop = { cx: .5, cy: .5, zoom: 1 };
     stage.classList.add('has-photo'); $('changePhoto').hidden = false; $('saveBtn').disabled = false; $('aspectBar').hidden = false;
-    layout(); if (!instances.length) $('gestureHint').textContent = 'Now tap a label below.';
+    layout(); updateHint();
   };
   photoImg.onerror = () => toast('That photo couldn’t be opened. Try a JPEG or PNG.');
   photoImg.src = url;
@@ -612,28 +649,19 @@ function setAspect(a){
   }
   for (const b of $('aspectSeg').querySelectorAll('button')) b.setAttribute('aria-pressed', b.dataset.aspect === a ? 'true' : 'false');
   $('saveBtn').textContent = a === 'square' ? 'Save cover' : 'Save image';
-  $('aspectHint').textContent = a === 'square' ? 'Drag the photo to frame it, pinch to zoom. Saves 3000×3000.' : 'Square saves 3000×3000 for Apple Music & Spotify.';
+  updateHint();
   layout(); syncControls();
 }
 $('aspectSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setAspect(b.dataset.aspect); });
 
 function layout(){
-  // Leave room under the stage for the tray, or the editor sheet when one is open
-  document.querySelector('main').style.paddingBottom = editor.hidden ? '' : (editor.offsetHeight + kbOffset + 24) + 'px';
   if (!photoImg.naturalWidth) return;
+  // Fit the photo inside whatever the stage area has left between the header and the tray/editor
   const ar = aspect === 'square' ? 1 : photoImg.naturalWidth / photoImg.naturalHeight;
   const wrap = $('stageWrap');
-  const avail = wrap.clientWidth;
-  const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-  let maxH = vh * 0.6;
-  if (!editor.hidden) {
-    // Fit the photo between the header and the sheet (measured as if scrolled to the top)
-    const stageTop = wrap.getBoundingClientRect().top + window.scrollY;
-    const sheetTop = window.innerHeight - kbOffset - editor.offsetHeight;
-    maxH = Math.min(maxH, sheetTop - stageTop - 12);
-  }
-  maxH = Math.max(180, maxH);
-  const W = Math.min(avail, maxH * ar);
+  const aw = wrap.clientWidth, ah = wrap.clientHeight;
+  if (aw <= 0 || ah <= 0) return;
+  const W = Math.min(aw, ah * ar);
   stageW = W; stageH = W / ar;
   stage.style.width = stageW + 'px'; stage.style.height = stageH + 'px';
   placePhoto();
