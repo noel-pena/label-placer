@@ -54,7 +54,10 @@ main{max-width:760px;margin:0 auto;padding:0 16px 32px}
 #stageWrap{display:flex;justify-content:center}
 #stage{position:relative;width:100%;min-height:260px;background:var(--stage);border-radius:14px;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 #stage.has-photo{min-height:0;border-radius:6px}
-#photo{position:absolute;inset:0;width:100%;height:100%;display:none;pointer-events:none}
+/* Positioned by placePhoto(): fills the stage in Full mode, pans/zooms behind a square frame in Cover mode */
+#photo{position:absolute;left:0;top:0;max-width:none;display:none;pointer-events:none}
+.aspect{display:flex;justify-content:center;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
+.aspect .hint{margin:0;font-size:12px}
 #stage.has-photo #photo{display:block}
 .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;color:var(--muted)}
 .empty p{margin:0;max-width:26ch}
@@ -148,6 +151,13 @@ input[type=range]{width:100%;accent-color:var(--accent);min-height:32px}
       <div class="guide v" id="guideV"></div>
       <div class="guide h" id="guideH"></div>
     </div>
+  </div>
+  <div class="aspect" id="aspectBar" hidden>
+    <div class="seg" id="aspectSeg">
+      <button type="button" data-aspect="full" aria-pressed="true">Original</button>
+      <button type="button" data-aspect="square" aria-pressed="false">Square cover</button>
+    </div>
+    <p class="hint" id="aspectHint">Square saves 3000×3000 for Apple Music &amp; Spotify.</p>
   </div>
   <p class="gesture-hint" id="gestureHint"></p>
 
@@ -466,7 +476,7 @@ function select(inst){
   editor.hidden = !inst;
   // The hint lives under the stage, which the sheet covers while editing, so it only shows when nothing is selected
   $('gestureHint').hidden = !!inst;
-  $('gestureHint').textContent = instances.length ? 'Tap a label to edit it. Drag to move; it snaps to the center, edges and other labels. Pinch to resize and rotate.' : '';
+  $('gestureHint').textContent = instances.length ? 'Tap a label to edit it. Drag to move; it snaps to the center, edges and other labels. Pinch to resize and rotate.' : (aspect === 'square' ? 'Drag the photo to frame it, pinch to zoom. Then tap a label below.' : '');
   if (!inst) { layout(); return; }
   if (!wasOpen) { editor.classList.remove('collapsed'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
   layout();
@@ -555,18 +565,63 @@ function onPhoto(e){
   if (!f) return;
   photoName = (f.name || 'photo').replace(/\.[^.]+$/, '');
   const url = URL.createObjectURL(f);
-  photoImg.onload = () => { stage.classList.add('has-photo'); $('changePhoto').hidden = false; $('saveBtn').disabled = false; layout(); if (!instances.length) $('gestureHint').textContent = 'Now tap a label below.'; };
+  photoImg.onload = () => {
+    crop = { cx: .5, cy: .5, zoom: 1 };
+    stage.classList.add('has-photo'); $('changePhoto').hidden = false; $('saveBtn').disabled = false; $('aspectBar').hidden = false;
+    layout(); if (!instances.length) $('gestureHint').textContent = 'Now tap a label below.';
+  };
   photoImg.onerror = () => toast('That photo couldn’t be opened. Try a JPEG or PNG.');
   photoImg.src = url;
 }
 $('photoInput').addEventListener('change', onPhoto);
 $('photoInput2').addEventListener('change', onPhoto);
 
+/* ---------- Crop (Original vs. square cover art) ---------- */
+const COVER_PX = 3000;             // Apple Music's minimum; above Spotify's 640
+let aspect = 'full';               // 'full' | 'square'
+let crop = { cx: .5, cy: .5, zoom: 1 };  // square crop: center as a fraction of the photo, zoom ≥ 1 (1 = largest square)
+
+// The part of the photo shown in the stage, in photo pixels
+function cropRect(){
+  const W = photoImg.naturalWidth, H = photoImg.naturalHeight;
+  if (aspect !== 'square') return { x: 0, y: 0, w: W, h: H };
+  const side = Math.min(W, H) / crop.zoom;
+  return { x: crop.cx*W - side/2, y: crop.cy*H - side/2, w: side, h: side };
+}
+function clampCrop(){
+  const W = photoImg.naturalWidth, H = photoImg.naturalHeight;
+  crop.zoom = Math.max(1, Math.min(5, crop.zoom));
+  const side = Math.min(W, H) / crop.zoom;
+  crop.cx = Math.max(side/2/W, Math.min(1 - side/2/W, crop.cx));
+  crop.cy = Math.max(side/2/H, Math.min(1 - side/2/H, crop.cy));
+}
+function placePhoto(){
+  const r = cropRect(), k = stageW / r.w;
+  Object.assign(photoImg.style, { left: (-r.x*k)+'px', top: (-r.y*k)+'px', width: (photoImg.naturalWidth*k)+'px', height: (photoImg.naturalHeight*k)+'px' });
+}
+// Switch views while keeping every label on the same spot of the photo, at the same size
+function setAspect(a){
+  if (a === aspect) return;
+  const before = cropRect();
+  aspect = a; if (photoImg.naturalWidth) clampCrop();
+  const after = cropRect();
+  for (const i of instances) {
+    const px = before.x + i.x*before.w, py = before.y + i.y*before.h;   // label center in photo px
+    i.x = (px - after.x) / after.w; i.y = (py - after.y) / after.h;
+    i.w = i.w * before.w / after.w;
+  }
+  for (const b of $('aspectSeg').querySelectorAll('button')) b.setAttribute('aria-pressed', b.dataset.aspect === a ? 'true' : 'false');
+  $('saveBtn').textContent = a === 'square' ? 'Save cover' : 'Save image';
+  $('aspectHint').textContent = a === 'square' ? 'Drag the photo to frame it, pinch to zoom. Saves 3000×3000.' : 'Square saves 3000×3000 for Apple Music & Spotify.';
+  layout(); syncControls();
+}
+$('aspectSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setAspect(b.dataset.aspect); });
+
 function layout(){
   // Leave room under the stage for the tray, or the editor sheet when one is open
   document.querySelector('main').style.paddingBottom = editor.hidden ? '' : (editor.offsetHeight + kbOffset + 24) + 'px';
   if (!photoImg.naturalWidth) return;
-  const ar = photoImg.naturalWidth / photoImg.naturalHeight;
+  const ar = aspect === 'square' ? 1 : photoImg.naturalWidth / photoImg.naturalHeight;
   const wrap = $('stageWrap');
   const avail = wrap.clientWidth;
   const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
@@ -581,6 +636,7 @@ function layout(){
   const W = Math.min(avail, maxH * ar);
   stageW = W; stageH = W / ar;
   stage.style.width = stageW + 'px'; stage.style.height = stageH + 'px';
+  placePhoto();
   instances.forEach(position);
 }
 window.addEventListener('resize', layout);
@@ -596,9 +652,12 @@ function snapshot(){
   }
   return { mx:a[0].x, my:a[0].y };
 }
+let mode = null;  // 'label': moving the selected label; 'crop': framing the photo in square view
 function beginGesture(){
-  if (!selected || !pts.size) { g = null; return; }
-  g = { start: snapshot(), x: selected.x, y: selected.y, w: selected.w, rot: selected.rot, n: pts.size };
+  if (!pts.size) { g = null; return; }
+  if (mode === 'label' && selected) g = { start: snapshot(), x: selected.x, y: selected.y, w: selected.w, rot: selected.rot, n: pts.size };
+  else if (mode === 'crop') g = { start: snapshot(), cx: crop.cx, cy: crop.cy, zoom: crop.zoom, n: pts.size };
+  else g = null;
 }
 
 /* ---------- Smart guides (snap to the photo's center/edges and to other labels) ---------- */
@@ -641,15 +700,26 @@ stage.addEventListener('pointerdown', e => {
   pts.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, hit: !!hit });
   try { stage.setPointerCapture(e.pointerId); } catch(_){}
   if (pts.size === 1) {
-    if (hit) { if (hit._inst !== selected) select(hit._inst); beginGesture(); }
-    else g = null;
-  } else beginGesture();
+    if (hit) { mode = 'label'; if (hit._inst !== selected) select(hit._inst); }
+    else mode = aspect === 'square' ? 'crop' : null;
+  }
+  beginGesture();
 });
 stage.addEventListener('pointermove', e => {
   const p = pts.get(e.pointerId); if (!p) return;
   p.x = e.clientX; p.y = e.clientY;
-  if (!g || !selected || g.n !== pts.size) return;
+  if (!g || g.n !== pts.size) return;
   const s = snapshot();
+  if (mode === 'crop') {
+    // Fingers move the photo, so the crop center moves the opposite way
+    const k = stageW / cropRect().w;   // stage px per photo px
+    if (pts.size >= 2 && g.start.d > 0) crop.zoom = g.zoom * s.d / g.start.d;
+    crop.cx = g.cx - (s.mx - g.start.mx) / k / photoImg.naturalWidth;
+    crop.cy = g.cy - (s.my - g.start.my) / k / photoImg.naturalHeight;
+    clampCrop(); placePhoto();
+    return;
+  }
+  if (!selected) return;
   if (pts.size >= 2 && g.start.d > 0) {
     selected.w = Math.max(.03, Math.min(1.5, g.w * s.d / g.start.d));
     let rot = ((g.rot + (s.ang - g.start.ang) * 180 / Math.PI + 540) % 360) - 180;
@@ -667,8 +737,8 @@ function endPointer(e){
   const p = pts.get(e.pointerId); if (!p) return;
   pts.delete(e.pointerId);
   const moved = Math.hypot(p.x - p.sx, p.y - p.sy) > 6;
-  if (!pts.size && !p.hit && !moved && g === null && selected) select(null);
-  if (pts.size) beginGesture(); else { g = null; hideGuides(); }
+  if (!pts.size && !p.hit && !moved && selected) select(null);
+  if (pts.size) beginGesture(); else { g = null; mode = null; hideGuides(); }
 }
 stage.addEventListener('pointerup', endPointer);
 stage.addEventListener('pointercancel', endPointer);
@@ -679,12 +749,13 @@ function loadImg(url){ return new Promise((res, rej) => { const i = new Image();
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
 async function buildImage(){
-  const W = photoImg.naturalWidth, H = photoImg.naturalHeight;
-  const k = Math.min(1, Math.sqrt(16000000 / (W*H)));
-  const cw = Math.round(W*k), ch = Math.round(H*k);
+  const r = cropRect();
+  let cw, ch;
+  if (aspect === 'square') cw = ch = COVER_PX;
+  else { const k = Math.min(1, Math.sqrt(16000000 / (r.w*r.h))); cw = Math.round(r.w*k); ch = Math.round(r.h*k); }
   const c = document.createElement('canvas'); c.width = cw; c.height = ch;
   const ctx = c.getContext('2d');
-  ctx.drawImage(photoImg, 0, 0, cw, ch);
+  ctx.drawImage(photoImg, r.x, r.y, r.w, r.h, 0, 0, cw, ch);
   for (const inst of instances) {
     const lw = inst.w * cw, lh = lw * inst.vb.h / inst.vb.w;
     const url = svgUrl(markupFor(inst, lw, lh));
@@ -707,7 +778,9 @@ $('saveBtn').addEventListener('click', async () => {
   try { blob = await buildImage(); }
   catch(e){ toast('The image couldn’t be built. Try a smaller photo.'); btn.disabled = false; btn.textContent = label; return; }
   btn.disabled = false; btn.textContent = label;
-  const filename = photoName + '-labeled.jpg';
+  const filename = photoName + (aspect === 'square' ? '-cover.jpg' : '-labeled.jpg');
+  const cropSide = Math.round(cropRect().w);
+  const sizeNote = aspect === 'square' ? ` Cover art is 3000×3000.${cropSide < COVER_PX ? ` The cropped area was ${cropSide}px, so it was enlarged.` : ''}` : '';
   if (downloads) {
     try { await downloads.save({ filename, data: blob }); toast('Image saved.'); return; }
     catch(err){
@@ -723,7 +796,7 @@ $('saveBtn').addEventListener('click', async () => {
   const canShare = !!(navigator.canShare && navigator.canShare({ files: [file] }));
   $('shareBtn').hidden = !canShare;
   $('shareBtn').onclick = async () => { try { await navigator.share({ files: [file] }); } catch(_){} };
-  $('resultHint').textContent = canShare ? 'Tap Save to Photos, or press and hold the image.' : 'Press and hold the image, then choose Save to Photos.';
+  $('resultHint').textContent = (canShare ? 'Tap Save to Photos, or press and hold the image.' : 'Press and hold the image, then choose Save to Photos.') + sizeNote;
 });
 $('closeResult').addEventListener('click', () => { $('result').hidden = true; });
 
