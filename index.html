@@ -58,7 +58,8 @@ main{flex:1 1 0;min-height:0;display:flex;flex-direction:column;padding:0 16px 8
 #dock{flex:0 0 auto}
 #app.editing #dock{display:none}
 #stage{position:relative;flex:0 0 auto;width:100%;height:100%;background:var(--stage);border-radius:14px;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
-#stage.has-photo{border-radius:6px}
+/* Square corners once a photo is loaded, so the preview matches the saved file edge for edge */
+#stage.has-photo{border-radius:0}
 /* Positioned by placePhoto(): fills the stage in Full mode, pans/zooms behind a square frame in Cover mode */
 #photo{position:absolute;left:0;top:0;max-width:none;display:none;pointer-events:none}
 .aspect{display:flex;justify-content:center;margin-top:8px}
